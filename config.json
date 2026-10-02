@@ -1,0 +1,6 @@
+{
+    "media_root": "/home/pi/Pictures",
+    "photo_duration": 10,
+    "shuffle": true,
+    "backend": "auto"
+}
