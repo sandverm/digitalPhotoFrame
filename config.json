@@ -3,6 +3,7 @@
     "photo_duration": 10,
     "shuffle": true,
     "use_local_media": false,
+    "rotation_angle": 90,
     "backend": "auto",
     "google_photos": {
         "enabled": false,
@@ -21,7 +22,7 @@
         "albums": [
             {
                 "share_url": "https://photos.app.goo.gl/<URL>",
-                "destination_dir": "/home/pi/Pictures/Shared"
+                "destination_dir": "/home/pi/Pictures/deepSyncShared"
             }
         ]
     }

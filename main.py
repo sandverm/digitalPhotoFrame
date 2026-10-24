@@ -12,7 +12,7 @@ def run_pyqt5(config):
     try:
         from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QStackedWidget, QSizePolicy
         from PyQt5.QtCore import Qt, QTimer, QUrl
-        from PyQt5.QtGui import QPixmap
+        from PyQt5.QtGui import QPixmap, QTransform
         from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
         from PyQt5.QtMultimediaWidgets import QVideoWidget
     except ImportError as e:
@@ -104,6 +104,11 @@ def run_pyqt5(config):
                     print(f"Error loading image: {media['path']}")
                     self.show_next()
                     return
+                
+                rotation_angle = self.config.get('rotation_angle', 0)
+                if rotation_angle != 0:
+                    transform = QTransform().rotate(rotation_angle)
+                    pixmap = pixmap.transformed(transform, Qt.SmoothTransformation)
                     
                 scaled_pixmap = pixmap.scaled(
                     self.size(), 
@@ -238,6 +243,13 @@ def run_tkinter(config):
             else:
                 try:
                     img = Image.open(media['path'])
+                    
+                    rotation_angle = self.config.get('rotation_angle', 0)
+                    if rotation_angle != 0:
+                        # PIL rotate takes angle counter-clockwise, so negative or positive depending on preference.
+                        # Usually user configures +90 or -90. PIL rotate(angle, expand=True) handles dimension swap.
+                        img = img.rotate(rotation_angle, expand=True)
+
                     win_width = self.root.winfo_width() or 800
                     win_height = self.root.winfo_height() or 600
                     
