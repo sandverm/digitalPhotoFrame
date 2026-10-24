@@ -3,6 +3,7 @@ import json
 import os
 from media_manager import MediaManager
 from google_photos_sync import GooglePhotosSync
+from google_shared_album_sync import GoogleSharedAlbumSync
 
 # ---------------------------------------------------------
 # PyQt5 Backend Implementation
@@ -26,14 +27,23 @@ def run_pyqt5(config):
             self.setStyleSheet("background-color: black;")
             self.showFullScreen()
             
+            gp_conf = cfg.get('google_photos', {})
+            shared_conf = cfg.get('google_shared_album', {})
             self.media_manager = MediaManager(
-                cfg.get('media_root', '/home/pi/Pictures'),
-                shuffle=cfg.get('shuffle', True)
+                root_dir=cfg.get('media_root', '/home/pi/Pictures'),
+                shuffle=cfg.get('shuffle', True),
+                use_local_media=cfg.get('use_local_media', True),
+                google_albums=gp_conf.get('albums', []),
+                shared_albums=shared_conf.get('albums', [])
             )
             
-            # Start Google Photos background sync service
+            # Start Google Photos API sync service
             self.gp_sync = GooglePhotosSync(cfg)
             self.gp_sync.start(on_new_media_callback=lambda: self.media_manager.refresh())
+
+            # Start Google Shared Album sync service (3rd source)
+            self.shared_sync = GoogleSharedAlbumSync(cfg)
+            self.shared_sync.start(on_new_media_callback=lambda: self.media_manager.refresh())
             
             self.central_widget = QStackedWidget()
             self.setCentralWidget(self.central_widget)
@@ -63,6 +73,8 @@ def run_pyqt5(config):
         def closeEvent(self, event):
             if hasattr(self, 'gp_sync'):
                 self.gp_sync.stop()
+            if hasattr(self, 'shared_sync'):
+                self.shared_sync.stop()
             event.accept()
 
         def show_next(self):
@@ -71,7 +83,7 @@ def run_pyqt5(config):
             
             media = self.media_manager.get_next()
             if not media:
-                self.image_label.setText("No media found in configured directory.")
+                self.image_label.setText("No media found in configured directory or Google albums.")
                 self.central_widget.setCurrentWidget(self.image_label)
                 self.timer.start(30000)
                 return
@@ -139,14 +151,23 @@ def run_tkinter(config):
             self.root.attributes('-fullscreen', True)
             self.root.configure(background='black')
             
+            gp_conf = cfg.get('google_photos', {})
+            shared_conf = cfg.get('google_shared_album', {})
             self.media_manager = MediaManager(
-                cfg.get('media_root', '/home/pi/Pictures'),
-                shuffle=cfg.get('shuffle', True)
+                root_dir=cfg.get('media_root', '/home/pi/Pictures'),
+                shuffle=cfg.get('shuffle', True),
+                use_local_media=cfg.get('use_local_media', True),
+                google_albums=gp_conf.get('albums', []),
+                shared_albums=shared_conf.get('albums', [])
             )
             
-            # Start Google Photos background sync service
+            # Start Google Photos API sync service
             self.gp_sync = GooglePhotosSync(cfg)
             self.gp_sync.start(on_new_media_callback=lambda: self.media_manager.refresh())
+
+            # Start Google Shared Album sync service (3rd source)
+            self.shared_sync = GoogleSharedAlbumSync(cfg)
+            self.shared_sync.start(on_new_media_callback=lambda: self.media_manager.refresh())
             
             self.canvas = tk.Canvas(root, bg='black', highlightthickness=0)
             self.canvas.pack(fill=tk.BOTH, expand=True)
@@ -169,6 +190,8 @@ def run_tkinter(config):
         def quit(self):
             if hasattr(self, 'gp_sync'):
                 self.gp_sync.stop()
+            if hasattr(self, 'shared_sync'):
+                self.shared_sync.stop()
             self.player.stop()
             self.root.destroy()
 
@@ -189,7 +212,7 @@ def run_tkinter(config):
                 self.canvas.delete("all")
                 self.canvas.create_text(
                     self.root.winfo_width() // 2, self.root.winfo_height() // 2,
-                    text="No media found in configured directory.",
+                    text="No media found in configured directory or Google albums.",
                     fill="white", font=("Arial", 20)
                 )
                 self.timer_id = self.root.after(30000, self.show_next)

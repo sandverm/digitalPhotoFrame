@@ -32,6 +32,8 @@ Setup:
 
 2. (Optional) To enable Google Photos sync:
    - Place your Google OAuth `client_secret.json` in the project root.
+   - Run the standalone token generator to authorize via copy-paste link in any browser:
+     python3 generate_token.py
    - Set `"enabled": true` and configure your album names and local destination directories in `config.json`.
 
 3. Run the application:

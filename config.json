@@ -2,15 +2,26 @@
     "media_root": "/home/pi/Pictures",
     "photo_duration": 10,
     "shuffle": true,
+    "use_local_media": false,
     "backend": "auto",
     "google_photos": {
         "enabled": false,
-        "sync_interval_hours": 24,
+        "sync_interval_hours": 1,
         "client_secrets_file": "client_secret.json",
         "albums": [
             {
                 "album_name": "Family Album",
                 "destination_dir": "/home/pi/Pictures/Family"
+            }
+        ]
+    },
+    "google_shared_album": {
+        "enabled": true,
+        "sync_interval_hours": 1,
+        "albums": [
+            {
+                "share_url": "https://photos.app.goo.gl/<URL>",
+                "destination_dir": "/home/pi/Pictures/Shared"
             }
         ]
     }

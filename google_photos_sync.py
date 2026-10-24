@@ -29,8 +29,7 @@ class GooglePhotosSync:
         self._stop_event.set()
 
     def _sync_loop(self, callback):
-        # Run initial sync after a short delay
-        time.sleep(5)
+        time.sleep(2)
         while not self._stop_event.is_set():
             try:
                 self.sync_once()
@@ -39,9 +38,7 @@ class GooglePhotosSync:
             except Exception as e:
                 print(f"Error during Google Photos sync: {e}")
 
-            # Sleep for configured interval (convert hours to seconds)
             interval_seconds = max(1, self.sync_interval_hours) * 3600
-            # Check stop event in small chunks
             for _ in range(int(interval_seconds / 10)):
                 if self._stop_event.is_set():
                     break
@@ -53,19 +50,15 @@ class GooglePhotosSync:
         
         if not os.path.exists(credentials_file):
             print(f"Google Photos credentials file '{credentials_file}' not found.")
-            print("To enable syncing from Google Photos, place your OAuth client_secret.json in the project root.")
             return
 
         try:
-            # Try importing Google API client libraries
             from google_auth_oauthlib.flow import InstalledAppFlow
             from google.auth.transport.requests import Request
             from google.oauth2.credentials import Credentials
-            from googleapiclient.discovery import build
             import requests
-        except ImportError:
-            print("Google API Python client libraries not installed.")
-            print("Run: pip3 install --break-system-packages google-api-python-client google-auth-oauthlib requests")
+        except ImportError as e:
+            print(f"Google API libraries missing: {e}")
             return
 
         SCOPES = ['https://www.googleapis.com/auth/photoslibrary.readonly']
@@ -87,15 +80,20 @@ class GooglePhotosSync:
                 if not os.isatty(0):
                     print("Interactive authentication required for Google Photos, but running non-interactively.")
                     return
+                print("Starting Google Photos OAuth authentication...")
                 flow = InstalledAppFlow.from_client_secrets_file(credentials_file, SCOPES)
-                creds = flow.run_local_server(port=0)
+                try:
+                    # Try local server first (works if Pi has desktop browser)
+                    creds = flow.run_local_server(port=0, open_browser=True)
+                except Exception as local_err:
+                    print(f"Local server auth failed ({local_err}). Falling back to console / copy-paste auth...")
+                    creds = flow.run_console()
 
             with open(token_path, 'w') as token:
                 token.write(creds.to_json())
 
-        service = build('photoslibrary', 'v1', credentials=creds, static_discovery=False)
+        headers = {'Authorization': f'Bearer {creds.token}'}
 
-        # Iterate over configured albums
         for album_conf in self.albums:
             album_name = album_conf.get('album_name')
             dest_dir = album_conf.get('destination_dir')
@@ -106,38 +104,50 @@ class GooglePhotosSync:
             os.makedirs(dest_dir, exist_ok=True)
             print(f"Syncing Google Photos album '{album_name}' -> '{dest_dir}'")
 
-            # Find album ID by name
-            album_id = self._find_album_id(service, album_name)
+            album_id = self._find_album_id(headers, album_name)
             if not album_id:
                 print(f"Google Photos album '{album_name}' not found.")
                 continue
 
-            # List media items in album
-            self._download_album_media(service, album_id, dest_dir)
+            self._download_album_media(headers, album_id, dest_dir)
 
-    def _find_album_id(self, service, target_name):
+    def _find_album_id(self, headers, target_name):
+        import requests
         pageToken = None
         while True:
-            response = service.albums().list(pageSize=50, pageToken=pageToken).execute()
-            albums = response.get('albums', [])
-            for album in albums:
+            url = 'https://photoslibrary.googleapis.com/v1/albums'
+            params = {'pageSize': 50}
+            if pageToken:
+                params['pageToken'] = pageToken
+            res = requests.get(url, headers=headers, params=params)
+            if res.status_code != 200:
+                print(f"Error listing albums: {res.text}")
+                break
+            data = res.json()
+            for album in data.get('albums', []):
                 if album.get('title') == target_name:
                     return album.get('id')
-            pageToken = response.get('nextPageToken')
+            pageToken = data.get('nextPageToken')
             if not pageToken:
                 break
         return None
 
-    def _download_album_media(self, service, album_id, dest_dir):
+    def _download_album_media(self, headers, album_id, dest_dir):
         import requests
         pageToken = None
         while True:
+            url = 'https://photoslibrary.googleapis.com/v1/mediaItems:search'
             body = {'albumId': album_id, 'pageSize': 100}
             if pageToken:
                 body['pageToken'] = pageToken
 
-            response = service.mediaItems().search(body=body).execute()
-            items = response.get('mediaItems', [])
+            res = requests.post(url, headers=headers, json=body)
+            if res.status_code != 200:
+                print(f"Error searching media items: {res.text}")
+                break
+
+            data = res.json()
+            items = data.get('mediaItems', [])
 
             for item in items:
                 filename = item.get('filename')
@@ -148,22 +158,21 @@ class GooglePhotosSync:
 
                 dest_path = os.path.join(dest_dir, filename)
                 if os.path.exists(dest_path):
-                    continue  # Already downloaded
+                    continue
 
-                # Append download parameters for original resolution (image=d, video=dv)
                 is_video = 'video' in item.get('mimeType', '')
                 download_url = base_url + ('=dv' if is_video else '=d')
 
                 try:
                     print(f"Downloading Google Photo: {filename}")
-                    res = requests.get(download_url, stream=True, timeout=30)
-                    if res.status_code == 200:
+                    r = requests.get(download_url, stream=True, timeout=30)
+                    if r.status_code == 200:
                         with open(dest_path, 'wb') as f:
-                            for chunk in res.iter_content(chunk_size=8192):
+                            for chunk in r.iter_content(chunk_size=8192):
                                 f.write(chunk)
                 except Exception as e:
                     print(f"Failed to download {filename}: {e}")
 
-            pageToken = response.get('nextPageToken')
+            pageToken = data.get('nextPageToken')
             if not pageToken:
                 break
