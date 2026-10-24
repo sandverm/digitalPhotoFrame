@@ -10,14 +10,45 @@ from google_shared_album_sync import GoogleSharedAlbumSync
 # ---------------------------------------------------------
 def run_pyqt5(config):
     try:
-        from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QStackedWidget, QSizePolicy, QGraphicsOpacityEffect
-        from PyQt5.QtCore import Qt, QTimer, QUrl, QPropertyAnimation, QEasingCurve
-        from PyQt5.QtGui import QPixmap, QTransform
+        from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QStackedWidget, QSizePolicy
+        from PyQt5.QtCore import Qt, QTimer, QUrl, QRect
+        from PyQt5.QtGui import QPixmap, QTransform, QPainter, QColor
         from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
         from PyQt5.QtMultimediaWidgets import QVideoWidget
     except ImportError as e:
         print(f"PyQt5 or QtMultimedia import failed: {e}")
         return False
+
+    class PyQt5CrossFadeLabel(QLabel):
+        def __init__(self, parent=None):
+            super().__init__(parent)
+            self.old_pixmap = None
+            self.new_pixmap = None
+            self.progress = 1.0  # 1.0 means new pixmap fully visible
+
+        def set_cross_fade(self, old_pix, new_pix, progress):
+            self.old_pixmap = old_pix
+            self.new_pixmap = new_pix
+            self.progress = progress
+            self.update()
+
+        def paintEvent(self, event):
+            painter = QPainter(self)
+            painter.fillRect(self.rect(), QColor(0, 0, 0))
+
+            # Draw old pixmap fading out
+            if self.old_pixmap and self.progress < 1.0:
+                painter.setOpacity(1.0 - self.progress)
+                x = (self.width() - self.old_pixmap.width()) // 2
+                y = (self.height() - self.old_pixmap.height()) // 2
+                painter.drawPixmap(x, y, self.old_pixmap)
+
+            # Draw new pixmap fading in
+            if self.new_pixmap:
+                painter.setOpacity(self.progress)
+                x = (self.width() - self.new_pixmap.width()) // 2
+                y = (self.height() - self.new_pixmap.height()) // 2
+                painter.drawPixmap(x, y, self.new_pixmap)
 
     class PyQt5PhotoFrame(QMainWindow):
         def __init__(self, cfg):
@@ -48,15 +79,9 @@ def run_pyqt5(config):
             self.central_widget = QStackedWidget()
             self.setCentralWidget(self.central_widget)
             
-            # Single image label with smooth fade-in
-            self.image_label = QLabel()
-            self.image_label.setAlignment(Qt.AlignCenter)
+            # Custom Cross-Fade Label
+            self.image_label = PyQt5CrossFadeLabel()
             self.image_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-            
-            self.opacity_effect = QGraphicsOpacityEffect(self.image_label)
-            self.image_label.setGraphicsEffect(self.opacity_effect)
-            self.opacity_effect.setOpacity(1.0)
-
             self.central_widget.addWidget(self.image_label)
             
             # Video Display
@@ -73,6 +98,7 @@ def run_pyqt5(config):
             self.timer = QTimer(self)
             self.timer.timeout.connect(self.show_next)
             
+            self.current_scaled_pixmap = None
             self.show_next()
 
         def closeEvent(self, event):
@@ -120,17 +146,37 @@ def run_pyqt5(config):
                     Qt.KeepAspectRatio, 
                     Qt.SmoothTransformation
                 )
-                self.image_label.setPixmap(scaled_pixmap)
 
-                # Smooth Fade-In Animation
-                self.anim = QPropertyAnimation(self.opacity_effect, b"opacity")
-                self.anim.setDuration(800)
-                self.anim.setStartValue(0.0)
-                self.anim.setEndValue(1.0)
-                self.anim.setEasingCurve(QEasingCurve.InOutQuad)
-                self.anim.start()
+                old_pix = self.current_scaled_pixmap
+                self.current_scaled_pixmap = scaled_pixmap
 
+                if old_pix is None:
+                    # First image, no crossfade needed
+                    self.image_label.set_cross_fade(None, scaled_pixmap, 1.0)
+                    self.timer.start(self.config.get('photo_duration', 10) * 1000)
+                else:
+                    # Run smooth cross-fade animation timer (1000ms duration, 20 steps)
+                    self.fade_steps = 20
+                    self.fade_current_step = 0
+                    self.fade_old_pix = old_pix
+                    self.fade_new_pix = scaled_pixmap
+
+                    if hasattr(self, 'fade_timer') and self.fade_timer.isActive():
+                        self.fade_timer.stop()
+
+                    self.fade_timer = QTimer(self)
+                    self.fade_timer.timeout.connect(self.step_cross_fade)
+                    self.fade_timer.start(50) # 50ms per step -> 1000ms total
+
+        def step_cross_fade(self):
+            self.fade_current_step += 1
+            progress = self.fade_current_step / float(self.fade_steps)
+            if progress >= 1.0:
+                progress = 1.0
+                self.fade_timer.stop()
                 self.timer.start(self.config.get('photo_duration', 10) * 1000)
+
+            self.image_label.set_cross_fade(self.fade_old_pix, self.fade_new_pix, progress)
 
         def on_media_status_changed(self, status):
             if status == QMediaPlayer.EndOfMedia:
@@ -354,7 +400,6 @@ if __name__ == "__main__":
         success = run_pyqt5(config)
         if not success:
             print("PyQt5 unavailable or failed. Falling back to Tkinter + VLC backend...")
-            success = run_tkinter(image_path=None) # type: ignore
             success = run_tkinter(config)
 
     if not success:
