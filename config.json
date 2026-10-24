@@ -2,5 +2,16 @@
     "media_root": "/home/pi/Pictures",
     "photo_duration": 10,
     "shuffle": true,
-    "backend": "auto"
+    "backend": "auto",
+    "google_photos": {
+        "enabled": false,
+        "sync_interval_hours": 24,
+        "client_secrets_file": "client_secret.json",
+        "albums": [
+            {
+                "album_name": "Family Album",
+                "destination_dir": "/home/pi/Pictures/Family"
+            }
+        ]
+    }
 }

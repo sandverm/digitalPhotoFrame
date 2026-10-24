@@ -2,6 +2,7 @@ import sys
 import json
 import os
 from media_manager import MediaManager
+from google_photos_sync import GooglePhotosSync
 
 # ---------------------------------------------------------
 # PyQt5 Backend Implementation
@@ -30,6 +31,10 @@ def run_pyqt5(config):
                 shuffle=cfg.get('shuffle', True)
             )
             
+            # Start Google Photos background sync service
+            self.gp_sync = GooglePhotosSync(cfg)
+            self.gp_sync.start(on_new_media_callback=lambda: self.media_manager.refresh())
+            
             self.central_widget = QStackedWidget()
             self.setCentralWidget(self.central_widget)
             
@@ -54,6 +59,11 @@ def run_pyqt5(config):
             self.timer.timeout.connect(self.show_next)
             
             self.show_next()
+
+        def closeEvent(self, event):
+            if hasattr(self, 'gp_sync'):
+                self.gp_sync.stop()
+            event.accept()
 
         def show_next(self):
             self.timer.stop()
@@ -134,6 +144,10 @@ def run_tkinter(config):
                 shuffle=cfg.get('shuffle', True)
             )
             
+            # Start Google Photos background sync service
+            self.gp_sync = GooglePhotosSync(cfg)
+            self.gp_sync.start(on_new_media_callback=lambda: self.media_manager.refresh())
+            
             self.canvas = tk.Canvas(root, bg='black', highlightthickness=0)
             self.canvas.pack(fill=tk.BOTH, expand=True)
             
@@ -153,6 +167,8 @@ def run_tkinter(config):
             self.show_next()
 
         def quit(self):
+            if hasattr(self, 'gp_sync'):
+                self.gp_sync.stop()
             self.player.stop()
             self.root.destroy()
 

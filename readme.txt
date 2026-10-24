@@ -4,24 +4,35 @@ Requirements & Features:
 1: Coding language: Python 3 and Bash.
 2: Displays photos for configured duration or videos for full duration, then switches to the next media item.
 3: Recursively scans configured media directory, picking random photos and videos from any sub-tree.
-4: Supports multiple native Raspberry Pi OS backends (PyQt5 and Tkinter + VLC) without heavy third-party wheels.
+4: Supports multiple native Raspberry Pi OS backends (PyQt5 and Tkinter + VLC).
+5: Google Photos synchronization support with album mapping, local directory destination, and configurable sync interval.
 
-Backends available:
-- "pyqt5": Uses native PyQt5 and QtMultimedia.
-- "tkinter": Uses Python's built-in Tkinter + Pillow + VLC bindings.
-- "auto": Automatically detects and uses the best available backend.
+Configuration (`config.json`):
+{
+    "media_root": "/home/pi/Pictures",
+    "photo_duration": 10,
+    "shuffle": true,
+    "backend": "auto",
+    "google_photos": {
+        "enabled": false,
+        "sync_interval_hours": 24,
+        "client_secrets_file": "client_secret.json",
+        "albums": [
+            {
+                "album_name": "Family Album",
+                "destination_dir": "/home/pi/Pictures/Family"
+            }
+        ]
+    }
+}
 
 Setup:
 1. Run setup script to install system dependencies:
    ./setup.sh
 
-2. Configure media directory in config.json:
-   {
-       "media_root": "/home/pi/Pictures",
-       "photo_duration": 10,
-       "shuffle": true,
-       "backend": "auto"
-   }
+2. (Optional) To enable Google Photos sync:
+   - Place your Google OAuth `client_secret.json` in the project root.
+   - Set `"enabled": true` and configure your album names and local destination directories in `config.json`.
 
 3. Run the application:
    ./run.sh
