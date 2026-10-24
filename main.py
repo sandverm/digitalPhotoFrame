@@ -10,8 +10,8 @@ from google_shared_album_sync import GoogleSharedAlbumSync
 # ---------------------------------------------------------
 def run_pyqt5(config):
     try:
-        from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QStackedWidget, QSizePolicy
-        from PyQt5.QtCore import Qt, QTimer, QUrl
+        from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QStackedWidget, QSizePolicy, QGraphicsOpacityEffect
+        from PyQt5.QtCore import Qt, QTimer, QUrl, QPropertyAnimation, QEasingCurve
         from PyQt5.QtGui import QPixmap, QTransform
         from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
         from PyQt5.QtMultimediaWidgets import QVideoWidget
@@ -48,10 +48,15 @@ def run_pyqt5(config):
             self.central_widget = QStackedWidget()
             self.setCentralWidget(self.central_widget)
             
-            # Image Display
+            # Single image label with smooth fade-in
             self.image_label = QLabel()
             self.image_label.setAlignment(Qt.AlignCenter)
             self.image_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            
+            self.opacity_effect = QGraphicsOpacityEffect(self.image_label)
+            self.image_label.setGraphicsEffect(self.opacity_effect)
+            self.opacity_effect.setOpacity(1.0)
+
             self.central_widget.addWidget(self.image_label)
             
             # Video Display
@@ -116,6 +121,15 @@ def run_pyqt5(config):
                     Qt.SmoothTransformation
                 )
                 self.image_label.setPixmap(scaled_pixmap)
+
+                # Smooth Fade-In Animation
+                self.anim = QPropertyAnimation(self.opacity_effect, b"opacity")
+                self.anim.setDuration(800)
+                self.anim.setStartValue(0.0)
+                self.anim.setEndValue(1.0)
+                self.anim.setEasingCurve(QEasingCurve.InOutQuad)
+                self.anim.start()
+
                 self.timer.start(self.config.get('photo_duration', 10) * 1000)
 
         def on_media_status_changed(self, status):
@@ -183,8 +197,12 @@ def run_tkinter(config):
             self.player = self.vlc_instance.media_player_new()
             
             self.current_image_tk = None
+            self.previous_image = None
+            self.target_image = None
             self.timer_id = None
             self.video_check_id = None
+            self.fade_steps = 15
+            self.fade_interval = 40  # ms
             
             self.root.bind("<Escape>", lambda e: self.quit())
             self.root.bind("<Right>", lambda e: self.show_next())
@@ -246,26 +264,55 @@ def run_tkinter(config):
                     
                     rotation_angle = self.config.get('rotation_angle', 0)
                     if rotation_angle != 0:
-                        # PIL rotate takes angle counter-clockwise, so negative or positive depending on preference.
-                        # Usually user configures +90 or -90. PIL rotate(angle, expand=True) handles dimension swap.
                         img = img.rotate(rotation_angle, expand=True)
 
                     win_width = self.root.winfo_width() or 800
                     win_height = self.root.winfo_height() or 600
                     
                     img.thumbnail((win_width, win_height), Image.Resampling.LANCZOS)
-                    self.current_image_tk = ImageTk.PhotoImage(img)
                     
-                    self.canvas.delete("all")
-                    self.canvas.create_image(
-                        win_width // 2, win_height // 2,
-                        image=self.current_image_tk, anchor=tk.CENTER
-                    )
+                    # Prepare target image centered on black background
+                    bg = Image.new("RGB", (win_width, win_height), (0, 0, 0))
+                    paste_x = (win_width - img.width) // 2
+                    paste_y = (win_height - img.height) // 2
+                    bg.paste(img, (paste_x, paste_y))
+                    
+                    if self.target_image is None:
+                        self.previous_image = bg
+                    else:
+                        self.previous_image = self.target_image
+                    
+                    self.target_image = bg
+                    self.fade_step_current = 0
+                    self.animate_cross_fade()
+
                 except Exception as e:
                     print(f"Error loading image {media['path']}: {e}")
                     self.show_next()
                     return
-                    
+
+        def animate_cross_fade(self):
+            if self.fade_step_current <= self.fade_steps:
+                alpha = self.fade_step_current / float(self.fade_steps)
+                win_width = self.root.winfo_width() or 800
+                win_height = self.root.winfo_height() or 600
+                
+                if self.previous_image:
+                    blended = Image.blend(self.previous_image, self.target_image, alpha)
+                else:
+                    blended = self.target_image
+
+                self.current_image_tk = ImageTk.PhotoImage(blended)
+                
+                self.canvas.delete("all")
+                self.canvas.create_image(
+                    win_width // 2, win_height // 2,
+                    image=self.current_image_tk, anchor=tk.CENTER
+                )
+                
+                self.fade_step_current += 1
+                self.root.after(self.fade_interval, self.animate_cross_fade)
+            else:
                 duration = self.config.get('photo_duration', 10) * 1000
                 self.timer_id = self.root.after(duration, self.show_next)
 
@@ -307,6 +354,7 @@ if __name__ == "__main__":
         success = run_pyqt5(config)
         if not success:
             print("PyQt5 unavailable or failed. Falling back to Tkinter + VLC backend...")
+            success = run_tkinter(image_path=None) # type: ignore
             success = run_tkinter(config)
 
     if not success:
